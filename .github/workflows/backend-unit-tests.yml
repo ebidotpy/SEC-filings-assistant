@@ -7,6 +7,9 @@ jobs:
   tests:
     name: Run unit tests
     runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: "mock-openai-key-for-ci"
+      VIRTUAL_ENV: ""
     defaults:
       run:
         working-directory: ./backend
