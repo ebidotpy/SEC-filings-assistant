@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "tsc -b && vite build",
+    "test:coverage": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "format": "prettier --write .",

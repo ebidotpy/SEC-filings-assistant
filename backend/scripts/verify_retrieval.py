@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import sys
 
-from app.database.documents import close_db_engine, init_db_engine
+from app.database.session import close_db_engine, init_db_engine
 from app.retrieval.retriever import DocumentRetriever
 from app.retrieval.types import SearchFilters
 

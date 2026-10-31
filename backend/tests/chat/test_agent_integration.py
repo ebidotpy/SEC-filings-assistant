@@ -7,7 +7,7 @@ import pytest
 from app.assistant.agent import document_agent, usage_limits
 from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
 from app.config import settings
-from app.database.documents import close_db_engine, init_db_engine
+from app.database.session import close_db_engine, init_db_engine
 from app.grounding.validator import validate_grounded_answer
 from app.retrieval.retriever import DocumentRetriever
 from app.retrieval.types import SourcePassage

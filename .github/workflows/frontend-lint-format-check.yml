@@ -31,3 +31,6 @@ jobs:
 
       - name: Run ESLint
         run: pnpm run lint
+
+      - name: Check Prettier formatting
+        run: pnpm run format:check
