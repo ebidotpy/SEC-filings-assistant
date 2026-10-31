@@ -1,0 +1,48 @@
+name: CI pipeline
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  frontend-lint-format-check:
+    name: Frontend lint
+    uses: ./.github/workflows/frontend-lint-format-check.yml
+
+  backend-lint-format-check:
+    name: Backend lint
+    uses: ./.github/workflows/backend-lint-format-check.yml
+
+  frontend-unit-tests:
+    name: Frontend tests
+    needs: frontend-lint-format-check
+    uses: ./.github/workflows/frontend-unit-tests.yml
+
+  backend-unit-tests:
+    name: Backend tests
+    needs: backend-lint-format-check
+    uses: ./.github/workflows/backend-unit-tests.yml
+
+  pipeline-success:
+    name: Pipeline success
+    needs:
+      [
+        frontend-lint-format-check,
+        backend-lint-format-check,
+        frontend-unit-tests,
+        backend-unit-tests,
+      ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Pipeline succeeded
+        if: "!contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')"
+        run: echo "All checks passed successfully!"
+      - name: Pipeline failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "Some checks failed or were cancelled."
+          exit 1
