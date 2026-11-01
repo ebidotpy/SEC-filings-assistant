@@ -2,9 +2,9 @@ name: CI pipeline
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 
@@ -45,6 +45,9 @@ jobs:
     name: Pipeline success
     needs:
       [
+        frontend-vulnerability-check,
+        backend-vulnerability-check,
+        backend-sast-check,
         frontend-lint-format-check,
         backend-lint-format-check,
         frontend-unit-tests,
