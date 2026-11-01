@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from app.database.documents import (
-    close_db_engine,
-    fulltext_search_chunk_ids,
-    init_db_engine,
-)
+from app.database.documents import fulltext_search_chunk_ids
+from app.database.session import close_db_engine, init_db_engine
 from app.retrieval.keywords import extract_search_keywords
 from app.retrieval.retriever import DocumentRetriever
 from app.retrieval.types import SearchFilters

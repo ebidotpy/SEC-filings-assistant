@@ -7,6 +7,9 @@ jobs:
   tests:
     name: Run unit tests
     runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: "mock-openai-key-for-ci"
+      VIRTUAL_ENV: ""
     defaults:
       run:
         working-directory: ./backend
@@ -17,7 +20,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
@@ -25,4 +28,4 @@ jobs:
         run: uv sync --frozen
 
       - name: Run unit tests
-        run: uv run pytest tests/unit --tb=short
+        run: uv run pytest -m "not integration" --tb=short

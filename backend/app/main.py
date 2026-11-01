@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, chat  # noqa: F401 — registers routes
 from app.api.router import protected_router, public_router
 from app.config import settings
-from app.database.documents import close_db_engine, init_db_engine
+from app.database.session import close_db_engine, init_db_engine
 from app.observability import configure_logfire, configure_logging
 
 

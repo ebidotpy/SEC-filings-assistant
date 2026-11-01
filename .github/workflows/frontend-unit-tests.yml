@@ -31,3 +31,5 @@ jobs:
 
       - name: Run unit tests
         run: pnpm run test:coverage
+        env:
+          VITE_API_BASE_URL: /api

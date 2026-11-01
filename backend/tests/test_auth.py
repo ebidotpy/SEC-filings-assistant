@@ -31,6 +31,7 @@ def test_jwt_token_creation_and_decoding():
     assert payload["email"] == email
 
 
+@pytest.mark.integration
 @pytest.mark.anyio
 async def test_auth_endpoints_flow():
     import uuid
