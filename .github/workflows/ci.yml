@@ -2,18 +2,33 @@ name: CI pipeline
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
+
 jobs:
+  frontend-vulnerability-check:
+    name: Frontend vulnerability
+    uses: ./.github/workflows/frontend-vulnerability-check.yml
+
+  backend-vulnerability-check:
+    name: Backend vulnerability
+    uses: ./.github/workflows/backend-vulnerability-check.yml
+
+  backend-sast-check:
+    name: Backend SAST
+    uses: ./.github/workflows/backend-sast-check.yml
+
   frontend-lint-format-check:
     name: Frontend lint
+    needs: frontend-vulnerability-check
     uses: ./.github/workflows/frontend-lint-format-check.yml
 
   backend-lint-format-check:
     name: Backend lint
+    needs: [backend-vulnerability-check, backend-sast-check]
     uses: ./.github/workflows/backend-lint-format-check.yml
 
   frontend-unit-tests:
@@ -30,6 +45,9 @@ jobs:
     name: Pipeline success
     needs:
       [
+        frontend-vulnerability-check,
+        backend-vulnerability-check,
+        backend-sast-check,
         frontend-lint-format-check,
         backend-lint-format-check,
         frontend-unit-tests,
