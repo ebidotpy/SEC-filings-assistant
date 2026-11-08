@@ -19,7 +19,7 @@ dependencies = [
  "pydantic-ai-slim[openai]==2.66.0",
  "pydantic-settings==2.16.2",
  "pyjwt==2.15.1",
- "sqlalchemy==2.1.8",
+ "sqlalchemy[asyncio]==2.1.8",
  "structlog==26.1.0",
  "tiktoken==0.14.0",
  "uvicorn==0.54.0",
