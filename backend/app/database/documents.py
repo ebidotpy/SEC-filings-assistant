@@ -91,7 +91,7 @@ async def semantic_search_chunk_ids(
           {filter_sql}
         ORDER BY dc.embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
-    """
+    """ # nosec B608 - filter_sql is built from a fixed allowlist, values are bound params
     params = {
         "embedding": vector_literal(embedding),
         "min_similarity": min_similarity,
@@ -120,7 +120,7 @@ async def fulltext_search_chunk_ids(
           {filter_sql}
         ORDER BY ts_rank_cd(dc.search_vector, query) DESC
         LIMIT :limit
-    """
+    """ # nosec B608 - filter_sql is built from a fixed allowlist, values are bound params
     params = {"query_text": query, "limit": limit, **filter_params}
     engine = get_db_engine()
     async with engine.connect() as conn:
@@ -141,7 +141,7 @@ async def fetch_passages_by_ids(
         FROM document_chunks dc
         JOIN source_documents sd ON sd.id = dc.document_id
         WHERE dc.id = ANY(CAST(:chunk_ids AS uuid[]))
-    """
+    """ # nosec B608 - filter_sql is built from a fixed allowlist, values are bound params
     engine = get_db_engine()
     async with engine.connect() as conn:
         result = await conn.execute(
