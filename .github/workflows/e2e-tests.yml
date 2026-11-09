@@ -46,12 +46,15 @@ jobs:
             backend/uv.lock
             backend/pyproject.toml
       - name: Verify uv installation
+        working-directory: ./backend
         run: uv --version
 
       - name: Install dependencies
+        working-directory: ./backend
         run: uv sync --frozen
 
       - name: Run database migrations
+        working-directory: ./backend
         run: uv run alembic upgrade head
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
