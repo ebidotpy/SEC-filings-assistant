@@ -40,6 +40,11 @@ jobs:
     name: Backend tests
     needs: backend-lint-format-check
     uses: ./.github/workflows/backend-unit-tests.yml
+  
+  backend-integration-tests:
+    name: Backend integration tests
+    needs: backend-unit-tests
+    uses: ./.github/workflows/backend-integration-tests.yml
 
   pipeline-success:
     name: Pipeline success
@@ -52,6 +57,7 @@ jobs:
         backend-lint-format-check,
         frontend-unit-tests,
         backend-unit-tests,
+        backend-integration-tests,
       ]
     runs-on: ubuntu-latest
     if: always()

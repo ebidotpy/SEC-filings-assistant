@@ -1,0 +1,66 @@
+name: Backend integration tests
+
+on:
+    workflow_call:
+
+env:
+    POSTGRES_USER: "test_user"
+    POSTGRES_PASSWORD: "aStrongPasswordForTesting"
+    POSTGRES_DB: "backend_test_db"
+    POSTGRES_HOST: "localhost"
+    POSTGRES_PORT: "5432"
+    DATABASE_URL: "postgresql://test_user:aStrongPasswordForTesting@localhost:5432/backend_test_db"
+
+jobs:
+    tests:
+        name: Run integration tests
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: ./backend
+
+        services:
+            postgres:
+                image: postgres:16-alpine
+                env:
+                    POSTGRES_USER: ${{ env.POSTGRES_USER }}
+                    POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+                    POSTGRES_DB: ${{ env.POSTGRES_DB }}
+                ports:
+                    - 5432:5432
+                # This replaces the while-loop wait script. 
+                # GitHub will wait until Postgres is ready before starting the job steps.
+                options: >-
+                    --helth-cmd="pg_isready -U ${{ env.POSGRES_USER }} -d ${{ env.POSTGRES_DB }}"
+                    --health-interval=5s
+                    --health-timeout=5s
+                    --health-retries=5
+            
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v7
+            
+            - name: Install uv and set up Python
+              uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+              with:
+                python-version: "3.12"
+                enable-cache: true
+                cache-dependency-glob: |
+                    backend/uv.lock
+                    backend/pyproject.toml
+
+            - name: Verify uv installation
+              run: uv --version
+
+            - name: Install dependencies
+              run: uv sync --frozen
+
+            - name: Run integration tests
+              run: uv run pytest tests --tb=short -v
+              env:
+                DATABASE_URL: ${{ env.DATABASE_URL }}
+                POSTGRES_USER: ${{ env.POSTGRES_USER }}
+                POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+                POSTGRES_DB: ${{ env.POSTGRES_DB }}
+                POSTGRES_HOST: ${{ env.POSTGRES_HOST }}
+                POSTGRES_PORT: ${{ env.POSTGRES_PORT }}
