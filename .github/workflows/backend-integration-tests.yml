@@ -1,0 +1,64 @@
+name: Backend integration tests
+
+on:
+  workflow_call:
+    secrets:
+      OPENAI_API_KEY:
+        required: false
+# These are automatically available to all steps below
+env:
+  POSTGRES_USER: "test_user"
+  POSTGRES_PASSWORD: "aStrongPasswordForTesting"
+  POSTGRES_DB: "backend_test_db"
+  POSTGRES_HOST: "localhost"
+  POSTGRES_PORT: "5432"
+  DATABASE_URL: "postgresql://test_user:aStrongPasswordForTesting@localhost:5432/backend_test_db"
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'mock-openai-key-for-ci' }}
+jobs:
+  tests:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          # Must be hardcoded here; ${{ env... }} does not work inside 'services'
+          POSTGRES_USER: "test_user"
+          POSTGRES_PASSWORD: "aStrongPasswordForTesting"
+          POSTGRES_DB: "backend_test_db"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test_user -d backend_test_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and set up Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+
+      - name: Verify uv installation
+        run: uv --version
+
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run database migrations
+        run: uv run alembic upgrade head
+
+
+      - name: Run integration tests
+        run: uv run pytest tests --tb=short -v
