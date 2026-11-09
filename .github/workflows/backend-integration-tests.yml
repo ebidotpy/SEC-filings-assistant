@@ -2,7 +2,9 @@ name: Backend integration tests
 
 on:
   workflow_call:
-
+    secrets:
+      OPENAI_API_KEY:
+        required: false
 # These are automatically available to all steps below
 env:
   POSTGRES_USER: "test_user"
@@ -11,7 +13,7 @@ env:
   POSTGRES_HOST: "localhost"
   POSTGRES_PORT: "5432"
   DATABASE_URL: "postgresql://test_user:aStrongPasswordForTesting@localhost:5432/backend_test_db"
-
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'mock-openai-key-for-ci' }}
 jobs:
   tests:
     name: Run integration tests
@@ -22,7 +24,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           # Must be hardcoded here; ${{ env... }} does not work inside 'services'
           POSTGRES_USER: "test_user"
@@ -54,6 +56,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen
+      - name: Run database migrations
+        run: uv run alembic upgrade head
+
 
       - name: Run integration tests
         run: uv run pytest tests --tb=short -v

@@ -44,8 +44,8 @@ jobs:
   backend-integration-tests:
     name: Backend integration tests
     needs: backend-unit-tests
+    secrets: inherit
     uses: ./.github/workflows/backend-integration-tests.yml
-
   pipeline-success:
     name: Pipeline success
     needs:
