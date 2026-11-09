@@ -83,12 +83,12 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
       - name: Set up pnpm 
-        uses: pnpm/action-setup@v7
+        uses: pnpm/action-setup@v6
         with:
           version: "11"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "pnpm"
@@ -104,7 +104,7 @@ jobs:
         run: echo "version=${pnpm list @playwright/test --json | jq -r '.[0].devDependencies["@platwright/test"].version'}" >> $GITHUB_OUTPUT
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
@@ -129,7 +129,7 @@ jobs:
           VITE_API_URL: ${{ env.VITE_API_URL }}
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
