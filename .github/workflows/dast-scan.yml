@@ -13,6 +13,9 @@ env:
   DATABASE_URL: "postgresql://test_user:aStrongPasswordForTesting@localhost:5432/backend_test_db"
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
+defaults:
+  run:
+    working-directory: ./backend
 jobs:
   tests:
     name: Run E2E tests
@@ -46,23 +49,19 @@ jobs:
             backend/uv.lock
             backend/pyproject.toml
       - name: Verify uv installation
-        working-directory: ./backend
         run: uv --version
 
       - name: Install dependencies
-        working-directory: ./backend
         run: uv sync --frozen
 
       - name: Run database migrations
-        working-directory: ./backend
         run: uv run alembic upgrade head
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
       - name: Start backend server
-        working-directory: ./backend
         run: |
-          uv run uvicorn main:app --host 0.0.0.0 --port 8000 &
+          uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 &
           echo "Waiting for backend to start..."
           for i in {1..30}; do
             if curl -s http://localhost:8000/api/health | grep -q
@@ -80,7 +79,9 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
         
       - name: Seed E2E test data
-        working-directory: ./backend
         run: python -m tests.test_data
         env: 
           DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: ZAP API scan
+        uses: 
