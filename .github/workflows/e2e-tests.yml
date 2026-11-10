@@ -81,7 +81,7 @@ jobs:
         
       - name: Seed E2E test data
         working-directory: ./backend
-        run: python -m tests.test_data
+        run: uv run python -m tests.test_data
         env: 
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
