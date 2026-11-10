@@ -1,0 +1,143 @@
+name: E2E tests
+
+on:
+  workflow_call:
+
+
+env:
+  POSTGRES_USER: "test_user"
+  POSTGRES_PASSWORD: "aStrongPasswordForTesting"
+  POSTGRES_DB: "backend_test_db"
+  POSTGRES_HOST: "localhost"
+  POSTGRES_PORT: "5432"
+  DATABASE_URL: "postgresql://test_user:aStrongPasswordForTesting@localhost:5432/backend_test_db"
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+jobs:
+  tests:
+    name: Run E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          # Must be hardcoded here; ${{ env... }} does not work inside 'services'
+          POSTGRES_USER: "test_user"
+          POSTGRES_PASSWORD: "aStrongPasswordForTesting"
+          POSTGRES_DB: "backend_test_db"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test_user -d backend_test_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and set up Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+      - name: Verify uv installation
+        working-directory: ./backend
+        run: uv --version
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: uv sync --frozen
+
+      - name: Run database migrations
+        working-directory: ./backend
+        run: uv run alembic upgrade head
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Start backend server
+        working-directory: ./backend
+        run: |
+          uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          echo "Waiting for backend to start..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8000/api/health | grep -q "ok"; then
+              echo "Backend is ready!"
+              break
+            fi 
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 1
+          done
+          if ! curl -s http://localhost:8000/api/health | grep -q "ok"; then
+            echo "Backend failed to start after 30 attemps"
+            exit 1
+          fi
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+        
+      - name: Seed E2E test data
+        working-directory: ./backend
+        run: uv run python -m tests.test_data
+        env: 
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Set up pnpm 
+        uses: pnpm/action-setup@v6
+        with:
+          version: "11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Insall fronte/nd dependencies
+        working-directory: ./frontend
+        run: pnpm install
+
+      - name: Get Playwright version
+        id: playwright-version
+        working-directory: ./frontend
+        run: echo "version=${pnpm list @playwright/test --json | jq -r '.[0].devDependencies["@platwright/test"].version'}" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - name: Install Playwright browsers (if no cache)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: ./frontend
+        run: pnpm exec playwright install --with-deps chromium firefox
+
+      - name: Install Playwright dependencies (if cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: ./frontend
+        run: pnpm exec playwright install-deps chromium firefox
+
+      - name: Run E2E tests
+        working-directory: ./frontend
+        run: pnpm run test:e2e
+        env:
+          CI: true
+          VITE_API_URL: ${{ env.VITE_API_URL }}
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30
+
+        
+           

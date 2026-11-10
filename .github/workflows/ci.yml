@@ -46,6 +46,11 @@ jobs:
     needs: backend-unit-tests
     secrets: inherit
     uses: ./.github/workflows/backend-integration-tests.yml
+  e2e-tests:
+    name: e2e-tests
+    needs: [backend-unit-tests, frontend-unit-tests]
+    secrets: inherit
+    uses: ./.github/workflows/e2e-tests.yml
   pipeline-success:
     name: Pipeline success
     needs:
@@ -58,6 +63,7 @@ jobs:
         frontend-unit-tests,
         backend-unit-tests,
         backend-integration-tests,
+        e2e-tests,
       ]
     runs-on: ubuntu-latest
     if: always()
