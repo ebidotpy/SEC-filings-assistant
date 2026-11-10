@@ -84,4 +84,10 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
       - name: ZAP API scan
-        uses: 
+        uses: zaproxy/action-api-scan@v0.10.0
+        with: 
+          target: "http://localhost:8000/openapi.json"
+          format: openapi
+          rules_file_name: ".github/zap-rules.tsv"
+          allow_issue_writing: false
+          fail_action: true
