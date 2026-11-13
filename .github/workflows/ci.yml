@@ -41,6 +41,12 @@ jobs:
     needs: backend-lint-format-check
     uses: ./.github/workflows/backend-unit-tests.yml
   
+  dast-check:
+    name: Backend
+    needs: backend-lint-format-check
+    uses: ./.github/workflows/dast-scan.yml
+    secrets: inherit
+  
   backend-integration-tests:
     name: Backend integration tests
     needs: backend-unit-tests
