@@ -1,4 +1,4 @@
-name: E2E tests
+name: DAST API scan
 
 on:
   workflow_call:
