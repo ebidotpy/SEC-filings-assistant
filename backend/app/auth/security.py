@@ -16,6 +16,8 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if len(plain_password.encode("utf-8")) > 72:
+        return False
     return bcrypt.checkpw(
         plain_password.encode("utf-8"),
         hashed_password.encode("utf-8"),
@@ -50,6 +52,7 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
             token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
+            options={"require": ["sub", "iat", "exp"]},
         )
     except jwt.PyJWTError:
         return None

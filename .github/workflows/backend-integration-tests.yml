@@ -13,6 +13,7 @@ env:
   POSTGRES_HOST: "localhost"
   POSTGRES_PORT: "5432"
   DATABASE_URL: "postgresql://test_user:aStrongPasswordForTesting@localhost:5432/backend_test_db"
+  JWT_SECRET_KEY: "integration-test-secret-key-at-least-32-characters"
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'mock-openai-key-for-ci' }}
 jobs:
   tests:

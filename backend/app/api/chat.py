@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from datetime import datetime
 from uuid import UUID
 
@@ -71,8 +72,20 @@ async def post_chat_stream(
     user: CurrentUser,
 ) -> StreamingResponse:
     generator = run_grounded_turn(user, body.thread_id, body.messages)
+    # StreamingResponse sends HTTP 200 before iterating. Validate and save the
+    # user message first so ownership/input errors retain their HTTP status.
+    first_chunk = await anext(generator)
+
+    async def content() -> AsyncIterator[str]:
+        try:
+            yield first_chunk
+            async for chunk in generator:
+                yield chunk
+        finally:
+            await generator.aclose()
+
     return StreamingResponse(
-        generator,
+        content(),
         media_type="text/event-stream",
         headers=STREAM_HEADERS,
     )

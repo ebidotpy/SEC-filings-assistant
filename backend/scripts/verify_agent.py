@@ -6,7 +6,6 @@ import argparse
 import asyncio
 import sys
 
-from app.observability import configure_logfire
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 from app.assistant.agent import document_agent, usage_limits
@@ -14,6 +13,7 @@ from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
 from app.config import settings
 from app.database.session import close_db_engine, init_db_engine
 from app.grounding.validator import GroundingError, validate_grounded_answer
+from app.observability import configure_logfire
 from app.retrieval.retriever import DocumentRetriever
 
 configure_logfire()

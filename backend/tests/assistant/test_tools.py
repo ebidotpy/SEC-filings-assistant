@@ -5,10 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
+from pydantic_ai import RunContext
+
 from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
 from app.assistant.tools import read_chunk, read_surrounding_chunks, search_filings
 from app.retrieval.types import SearchFilters, SourcePassage
-from pydantic_ai import RunContext
 
 CHUNK_A = UUID("00000000-0000-0000-0000-000000000001")
 CHUNK_B = UUID("00000000-0000-0000-0000-000000000002")

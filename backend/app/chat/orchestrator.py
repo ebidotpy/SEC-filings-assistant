@@ -41,9 +41,7 @@ from app.database.chats import (
     DEFAULT_THREAD_TITLE,
     ThreadRow,
     get_thread_raw,
-    insert_citations,
     insert_message,
-    next_sequence,
     touch_thread,
 )
 from app.database.users import ensure_app_user
@@ -163,9 +161,8 @@ async def run_grounded_turn(
             detail="User message is empty",
         )
 
-    sequence = await next_sequence(thread_id)
-    user_message_id = UUID(user_message.id) if _is_uuid(user_message.id) else uuid4()
     assistant_message_id = uuid4()
+    agent_task: asyncio.Task[Any] | None = None
 
     structlog.contextvars.bind_contextvars(
         thread_id=str(thread_id),
@@ -175,14 +172,13 @@ async def run_grounded_turn(
     logger.info("chat_turn_started")
 
     try:
-        await insert_message(
+        saved_user_message = await insert_message(
             thread_id,
             role="user",
             content=user_text,
             parts=[part.model_dump() for part in user_message.parts],
-            sequence=sequence,
-            message_id=user_message_id,
         )
+        sequence = saved_user_message.sequence
 
         registry = RetrievalRegistry()
         deps = DocumentAgentDeps(
@@ -237,7 +233,6 @@ async def run_grounded_turn(
                 yield chunk
             return
         except ModelHTTPError:
-            # logger.error("chat_turn_model_unavailable", exc_info=True)
             logger.exception("chat_turn_model_unavailable")
             async for chunk in stream_error(
                 "The language model service is unavailable. Please try again shortly."
@@ -256,14 +251,6 @@ async def run_grounded_turn(
             for citation in grounded.citations
         ]
 
-        async for chunk in stream_grounded_answer(
-            str(assistant_message_id),
-            grounded.answer,
-            citation_payloads,
-            include_start=False,
-        ):
-            yield chunk
-
         await insert_message(
             thread_id,
             role="assistant",
@@ -271,10 +258,7 @@ async def run_grounded_turn(
             parts=assistant_parts(grounded.answer, citation_payloads),
             sequence=sequence + 1,
             message_id=assistant_message_id,
-        )
-        await insert_citations(
-            assistant_message_id,
-            build_citation_inserts(grounded, registry.passages),
+            citations=build_citation_inserts(grounded, registry.passages),
         )
 
         title = thread.title
@@ -282,18 +266,22 @@ async def run_grounded_turn(
             title = truncate_title(user_text)
 
         await touch_thread(thread_id, title=title)
+        # A finished stream must already be durable when the browser reloads
+        # history or refreshes the sidebar in its onFinish callback.
+        async for chunk in stream_grounded_answer(
+            str(assistant_message_id),
+            grounded.answer,
+            citation_payloads,
+            include_start=False,
+        ):
+            yield chunk
         logger.info(
             "chat_turn_completed",
             citation_count=len(grounded.citations),
             insufficient_evidence=grounded.insufficient_evidence,
         )
     finally:
+        if agent_task is not None:
+            agent_task.cancel()
+            await asyncio.gather(agent_task, return_exceptions=True)
         structlog.contextvars.clear_contextvars()
-
-
-def _is_uuid(value: str) -> bool:
-    try:
-        UUID(value)
-    except ValueError:
-        return False
-    return True

@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: "mock-openai-key-for-ci"
+      DATABASE_URL: "postgresql+psycopg://test:test@localhost:5434/unit_tests"
+      JWT_SECRET_KEY: "unit-test-secret-key-with-at-least-32-characters"
       VIRTUAL_ENV: ""
     defaults:
       run:
