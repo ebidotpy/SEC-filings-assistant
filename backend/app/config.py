@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -19,15 +19,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = "postgresql://postgres:postgres@localhost:5434/document_copilot"
+    database_url: str = Field(min_length=1)
 
-    jwt_secret_key: str = (
-        "document-copilot-dev-secret-key-change-in-production-1234567890"
-    )
+    jwt_secret_key: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 10080
+    jwt_access_token_expire_minutes: int = Field(default=10080, gt=0)
 
-    openai_api_key: str
+    openai_api_key: str = Field(min_length=1)
     base_url: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimensions: int = 1536
@@ -59,6 +57,16 @@ class Settings(BaseSettings):
     retrieval_keyword_temperature: float = 0.0
 
     allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def reject_placeholder_secret(cls, value: str) -> str:
+        if value in {
+            "replace-with-a-secure-random-secret-key",
+            "document-copilot-dev-secret-key-change-in-production-1234567890",
+        }:
+            raise ValueError("JWT_SECRET_KEY must be a secure random secret")
+        return value
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
