@@ -18,6 +18,7 @@ _unauthorized_headers = {"WWW-Authenticate": "Bearer"}
 class AuthenticatedUser:
     id: UUID
     email: str
+    display_name: str | None = None
 
 
 async def get_current_user(
@@ -61,6 +62,7 @@ async def get_current_user(
     return AuthenticatedUser(
         id=user.id,
         email=user.email,
+        display_name=user.display_name,
     )
 
 

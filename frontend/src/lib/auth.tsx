@@ -123,13 +123,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async (): Promise<void> => {
+    setStoredToken(null);
+    setSession(null);
     try {
       await api.post("/auth/logout", undefined, { auth: false });
     } catch {
       // Ignore network failure on logout
-    } finally {
-      setStoredToken(null);
-      setSession(null);
     }
   }, []);
 

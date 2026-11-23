@@ -68,7 +68,7 @@ def validate_grounded_answer(
 
         normalized_excerpt = _normalize(citation.excerpt)
         normalized_passage = _normalize(passage.text)
-        if normalized_excerpt not in normalized_passage:
+        if not normalized_excerpt or normalized_excerpt not in normalized_passage:
             raise GroundingError(
                 f"Citation [{citation.citation_index}] excerpt is not from the "
                 "retrieved passage text"

@@ -51,3 +51,4 @@ nginx/
 .pre-commit-config.yaml
 /frontend/eslint.config.js
 document-copilot.tar.gz
+.codewiki/

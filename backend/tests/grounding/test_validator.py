@@ -111,6 +111,16 @@ def test_validate_grounded_answer_rejects_excerpt_mismatch():
         validate_grounded_answer(answer, _registry(passage))
 
 
+@pytest.mark.parametrize("excerpt", [" ", "\n\t", "\u00a0"])
+def test_validate_grounded_answer_rejects_blank_normalized_excerpt(excerpt):
+    answer = GroundedAnswer(
+        answer="Unsupported claim. [1]",
+        citations=[Citation(citation_index=1, chunk_id=CHUNK_A, excerpt=excerpt)],
+    )
+    with pytest.raises(GroundingError, match="excerpt is not from"):
+        validate_grounded_answer(answer, _registry(_passage(CHUNK_A, "Other text")))
+
+
 def test_validate_grounded_answer_folds_curly_quotes_and_dashes():
     passage = _passage(
         CHUNK_A,

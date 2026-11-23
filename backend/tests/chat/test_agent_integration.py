@@ -5,9 +5,6 @@ from datetime import date
 from uuid import UUID
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
-
 from app.assistant.agent import document_agent, usage_limits
 from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
 from app.config import settings
@@ -15,6 +12,8 @@ from app.database.session import close_db_engine, get_db_engine, init_db_engine
 from app.grounding.validator import validate_grounded_answer
 from app.retrieval.retriever import DocumentRetriever
 from app.retrieval.types import SourcePassage
+from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 _CHUNK_ID = UUID("00000000-0000-0000-0000-000000000abc")
 

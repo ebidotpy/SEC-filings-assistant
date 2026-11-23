@@ -11,6 +11,7 @@ import { SourceSheet } from "@/components/chat/SourceSheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { accessToken } from "@/lib/auth-token";
+import { useAuth } from "@/lib/auth";
 import { loadThreadMessages, type ChatUIMessage } from "@/lib/chat";
 import type { Citation } from "@/lib/citations";
 import { env } from "@/lib/env";
@@ -60,6 +61,7 @@ function ChatThreadView({
     null,
   );
   const autoSent = useRef(false);
+  const mounted = useRef(false);
 
   const transport = useMemo(
     () =>
@@ -80,7 +82,7 @@ function ChatThreadView({
     [],
   );
 
-  const { messages, sendMessage, status, error, clearError } = useChat({
+  const { messages, sendMessage, status, error, clearError, stop } = useChat({
     id: threadId,
     messages: initialMessages as UIMessage[],
     transport,
@@ -88,6 +90,17 @@ function ChatThreadView({
       void refreshThreads();
     },
   });
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // StrictMode immediately runs setup again; cancel only a real unmount.
+      queueMicrotask(() => {
+        if (!mounted.current) void stop();
+      });
+    };
+  }, [stop]);
 
   const isBusy = status === "streaming" || status === "submitted";
 
@@ -130,6 +143,7 @@ function ChatThreadView({
 }
 
 export function ChatThreadPage() {
+  const { signOut } = useAuth();
   const { threadId } = useParams();
   const location = useLocation();
   const initialPrompt =
@@ -139,9 +153,12 @@ export function ChatThreadPage() {
     typeof location.state.initialPrompt === "string"
       ? location.state.initialPrompt
       : undefined;
-  const [initialMessages, setInitialMessages] = useState<
-    ChatUIMessage[] | null
-  >(null);
+  const [history, setHistory] = useState<{
+    threadId: string;
+    messages: ChatUIMessage[];
+  } | null>(null);
+  const initialMessages =
+    history && history.threadId === threadId ? history.messages : null;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [authExpired, setAuthExpired] = useState(false);
 
@@ -151,14 +168,14 @@ export function ChatThreadPage() {
     }
 
     let cancelled = false;
-    setInitialMessages(null);
+    setHistory(null);
     setLoadError(null);
     setAuthExpired(false);
 
     loadThreadMessages(threadId)
       .then((messages) => {
         if (!cancelled) {
-          setInitialMessages(messages);
+          setHistory({ threadId, messages });
         }
       })
       .catch((error: unknown) => {
@@ -186,7 +203,9 @@ export function ChatThreadPage() {
         <div className="flex gap-2">
           {authExpired ? (
             <Button asChild>
-              <Link to="/sign-in">Sign in</Link>
+              <Link to="/sign-in" onClick={() => void signOut()}>
+                Sign in
+              </Link>
             </Button>
           ) : null}
           <Button asChild variant="outline">

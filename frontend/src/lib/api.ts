@@ -8,6 +8,17 @@ function errorMessage(body: unknown, status: number): string {
     if (typeof detail === "string") {
       return detail;
     }
+    if (Array.isArray(detail)) {
+      const messages = detail.flatMap((item: unknown) => {
+        if (typeof item !== "object" || item === null || !("msg" in item)) {
+          return [];
+        }
+        return typeof item.msg === "string" ? [item.msg] : [];
+      });
+      if (messages.length > 0) {
+        return messages.join("; ");
+      }
+    }
   }
 
   return `Request failed with status ${status}`;

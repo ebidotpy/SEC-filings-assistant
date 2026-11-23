@@ -155,42 +155,57 @@ async def list_messages(thread_id: UUID) -> list[MessageRow]:
         ]
 
 
-async def next_sequence(thread_id: UUID) -> int:
-    async with get_db_session() as session:
-        stmt = select(func.coalesce(func.max(ChatMessage.sequence), 0)).where(
-            ChatMessage.thread_id == thread_id
-        )
-        result = await session.execute(stmt)
-        max_seq = result.scalar_one()
-        return int(max_seq) + 1
-
-
 async def insert_message(
     thread_id: UUID,
     *,
     role: str,
     content: str | None,
     parts: list[dict[str, Any]] | None,
-    sequence: int,
+    sequence: int | None = None,
     message_id: UUID | None = None,
+    citations: list[CitationInsert] | None = None,
 ) -> MessageRow:
-    role_enum = (
-        MessageRole(role)
-        if role in MessageRole._value2member_map_
-        else MessageRole.USER
-    )
-    msg = ChatMessage(
-        id=message_id or uuid4(),
-        thread_id=thread_id,
-        role=role_enum,
-        content=content,
-        parts=parts,
-        sequence=sequence,
-    )
     async with get_db_session() as session:
+        if sequence is None:
+            # Serialize allocation across workers and reserve the adjacent
+            # sequence for the answer, including when a previous turn failed.
+            await session.execute(
+                select(ChatThread.id)
+                .where(ChatThread.id == thread_id)
+                .with_for_update()
+            )
+            result = await session.execute(
+                select(func.coalesce(func.max(ChatMessage.sequence), 0)).where(
+                    ChatMessage.thread_id == thread_id
+                )
+            )
+            sequence = (int(result.scalar_one()) + 1) // 2 * 2 + 1
+
+        msg = ChatMessage(
+            id=message_id or uuid4(),
+            thread_id=thread_id,
+            role=MessageRole(role),
+            content=content,
+            parts=parts,
+            sequence=sequence,
+            citations=[
+                MessageCitation(
+                    id=uuid4(),
+                    chunk_id=c.chunk_id,
+                    citation_index=c.citation_index,
+                    excerpt=c.excerpt,
+                    ticker=c.ticker,
+                    company_name=c.company_name,
+                    form=c.form,
+                    filing_date=c.filing_date,
+                    page=c.page,
+                    section=c.section,
+                )
+                for c in citations or []
+            ],
+        )
         session.add(msg)
         await session.commit()
-        await session.refresh(msg)
         return MessageRow(
             id=msg.id,
             thread_id=msg.thread_id,
@@ -199,39 +214,8 @@ async def insert_message(
             parts=msg.parts,
             sequence=msg.sequence,
             created_at=msg.created_at,
-            citations=[],
+            citations=[_citation_row(c) for c in msg.citations],
         )
-
-
-async def insert_citations(
-    message_id: UUID,
-    citations: list[CitationInsert],
-) -> list[CitationRow]:
-    if not citations:
-        return []
-
-    db_citations = [
-        MessageCitation(
-            id=uuid4(),
-            message_id=message_id,
-            chunk_id=c.chunk_id,
-            citation_index=c.citation_index,
-            excerpt=c.excerpt,
-            ticker=c.ticker,
-            company_name=c.company_name,
-            form=c.form,
-            filing_date=c.filing_date,
-            page=c.page,
-            section=c.section,
-        )
-        for c in citations
-    ]
-    async with get_db_session() as session:
-        session.add_all(db_citations)
-        await session.commit()
-        for c in db_citations:
-            await session.refresh(c)
-        return [_citation_row(c) for c in db_citations]
 
 
 async def touch_thread(thread_id: UUID, *, title: str | None = None) -> None:

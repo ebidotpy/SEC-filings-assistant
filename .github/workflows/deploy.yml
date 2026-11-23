@@ -2,6 +2,15 @@ name: Manual deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      health_url:
+        description: "Public API health URL, e.g. https://your-domain/api/health"
+        required: true
+        type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -190,6 +199,18 @@ jobs:
 
             echo "Virtual environment setup completed successfully."
 
+      - name: Apply database migrations
+        uses: appleboy/ssh-action@v1.2.4
+        with:
+          host: ${{ secrets.HOST_IP }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            export PATH="$HOME/.local/bin:$PATH"
+            cd /web_app/backend
+            uv run --frozen --no-dev alembic upgrade head
+
       - name: Restart backend service
         uses: appleboy/ssh-action@v1.2.4
         with:
@@ -244,3 +265,10 @@ jobs:
             fi
 
             echo "Deployment complete!"
+
+      - name: Verify deployed API
+        env:
+          DEPLOY_HEALTH_URL: ${{ inputs.health_url }}
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-connrefused \
+            --retry-delay 2 --max-time 10 "$DEPLOY_HEALTH_URL"

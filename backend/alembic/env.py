@@ -2,7 +2,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from app.config import settings
-from app.database.base import Base
+from app.database.models import Base
 from sqlalchemy import create_engine, pool
 
 config = context.config
@@ -19,7 +19,7 @@ def database_url(*, require_session_connection: bool = False) -> str:
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=database_url(require_session_connection=False).replace("%", "%%"),
+        url=database_url(require_session_connection=False),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

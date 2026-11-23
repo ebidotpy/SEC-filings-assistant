@@ -124,17 +124,11 @@ async def document_has_chunks(document_id: UUID) -> bool:
         return result.scalar_one_or_none() is not None
 
 
-async def delete_document_chunks(document_id: UUID) -> None:
-    async with get_db_session() as session:
-        await session.execute(
-            delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
-        )
-        await session.commit()
-
-
 async def insert_document_chunks(
     document_id: UUID,
     records: list[ChunkRecord],
+    *,
+    replace_existing: bool = False,
 ) -> int:
     embeddings = await embed_texts([record.embedding_text for record in records])
 
@@ -154,10 +148,16 @@ async def insert_document_chunks(
     ]
 
     async with get_db_session() as session:
+        if replace_existing:
+            await session.execute(
+                delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+            )
         for start in range(0, len(chunks), INSERT_BATCH_SIZE):
             batch = chunks[start : start + INSERT_BATCH_SIZE]
             session.add_all(batch)
-            await session.commit()
+            await session.flush()
+        # Keep a filing intact if embedding generation or any insert batch fails.
+        await session.commit()
 
     return len(chunks)
 
@@ -188,10 +188,9 @@ async def ingest_filing(
     if has_chunks and skip_existing and not force:
         return "skipped"
 
-    if has_chunks and force:
-        await delete_document_chunks(document_id)
-
-    inserted = await insert_document_chunks(document_id, records)
+    inserted = await insert_document_chunks(
+        document_id, records, replace_existing=force
+    )
     print(f"  {filing['ticker']} {accession_number}: inserted {inserted} chunk(s)")
     return "inserted"
 
