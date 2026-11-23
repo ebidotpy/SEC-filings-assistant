@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import jwt
 import pytest
+from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
+
 from app.api.auth import RegisterRequest
 from app.auth.security import (
     create_access_token,
@@ -11,8 +14,6 @@ from app.auth.security import (
 )
 from app.config import settings
 from app.main import app
-from httpx import ASGITransport, AsyncClient
-from pydantic import ValidationError
 
 
 def test_password_hashing():

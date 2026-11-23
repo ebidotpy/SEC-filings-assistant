@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
+from pydantic_ai.messages import ModelRequest, ModelResponse
+
 from app.assistant.outputs import Citation, GroundedAnswer
 from app.chat.messages import (
     UIMessage,
@@ -13,7 +15,6 @@ from app.chat.messages import (
     ui_message_from_row,
 )
 from app.database.chats import CitationRow, MessageRow
-from pydantic_ai.messages import ModelRequest, ModelResponse
 
 
 def test_to_model_history_converts_user_and_assistant_messages():

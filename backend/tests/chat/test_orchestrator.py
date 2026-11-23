@@ -6,14 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
+from pydantic_ai.messages import FunctionToolCallEvent, ToolCallPart
+
 from app.assistant.outputs import Citation, GroundedAnswer
 from app.auth.dependencies import AuthenticatedUser
 from app.chat.messages import UIMessage, UIMessagePart
 from app.chat.orchestrator import run_grounded_turn
 from app.database.chats import ThreadRow
 from app.retrieval.types import SourcePassage
-from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
-from pydantic_ai.messages import FunctionToolCallEvent, ToolCallPart
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000100")
 THREAD_ID = UUID("00000000-0000-0000-0000-000000000200")

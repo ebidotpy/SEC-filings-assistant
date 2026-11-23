@@ -1,6 +1,7 @@
 import pytest
-from app.config import Settings
 from pydantic import ValidationError
+
+from app.config import Settings
 
 
 @pytest.mark.parametrize("field", ["DATABASE_URL", "JWT_SECRET_KEY", "OPENAI_API_KEY"])

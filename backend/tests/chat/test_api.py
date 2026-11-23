@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+
 from app.auth.dependencies import AuthenticatedUser, get_current_user
 from app.database.chats import ThreadRow
 from app.main import app
-from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture

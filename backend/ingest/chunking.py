@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import tiktoken
-from app.config import settings
 from docling.chunking import HierarchicalChunker, HybridChunker
 from docling.document_converter import DocumentConverter
 from docling_core.transforms.chunker.tokenizer.openai import OpenAITokenizer
 from docling_core.types.doc.document import DoclingDocument
+
+from app.config import settings
 
 _ITEM_SECTION_RE = re.compile(
     r"(?:Part\s+[IVXLC]+,\s*)?Item\s+\d+[A-Z]?\.?(?:\s*[\"'][^\"']+[\"'])?",

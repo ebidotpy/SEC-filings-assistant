@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+
 from ingest.chunking import ChunkRecord
 from ingest.load_document_chunks import (
     chunk_rows,

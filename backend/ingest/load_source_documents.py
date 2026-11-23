@@ -8,9 +8,10 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from sqlalchemy import select
+
 from app.database.models.source_document import SourceDocument
 from app.database.session import get_db_session
-from sqlalchemy import select
 
 # Params: edit these, then run from backend/:
 #   uv run python ingest/load_source_documents.py

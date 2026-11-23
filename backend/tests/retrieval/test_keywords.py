@@ -3,13 +3,14 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
+
 from app.retrieval.keywords import (
     SearchKeywords,
     _build_prompt,
     extract_search_keywords,
 )
 from app.retrieval.types import SearchFilters
-from pydantic import ValidationError
 
 
 def test_search_keywords_requires_three_to_five_non_empty_terms():

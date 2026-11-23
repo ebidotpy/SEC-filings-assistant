@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
+
 from app.retrieval.retriever import DocumentRetriever
 from app.retrieval.types import SearchFilters, SourcePassage
 

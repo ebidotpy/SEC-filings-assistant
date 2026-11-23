@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 
 import pytest
+from sqlalchemy import text
+
 from app.database.documents import fulltext_search_chunk_ids
 from app.database.session import close_db_engine, get_db_engine, init_db_engine
 from app.retrieval.keywords import extract_search_keywords
 from app.retrieval.retriever import DocumentRetriever
 from app.retrieval.types import SearchFilters
-from sqlalchemy import text
 
 
 def _is_live_openai_configured() -> bool:
