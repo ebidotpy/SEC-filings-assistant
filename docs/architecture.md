@@ -16,7 +16,7 @@ flowchart LR
 
     subgraph railway[Railway]
         frontend[Frontend service<br/>Vite build]
-        backend[Backend service<br/>FastAPI + PydanticAI]
+        backend[Backend service<br/>FastAPI + LangGraph]
     end
 
     subgraph supabase[Supabase]
@@ -52,7 +52,7 @@ flowchart LR
 - Keep the backend authoritative: retrieval, grounding, citation checks, tool execution, and database writes happen in FastAPI.
 - Use Supabase for identity and durable product state: users, chat threads, source documents, chunks, embeddings, and citation metadata.
 - Use Supabase `pgvector` for semantic retrieval and Postgres full-text search for keyword retrieval.
-- Make the LLM path typed and testable by using PydanticAI agents with explicit dependencies, outputs, and tool boundaries.
+- Make the LLM path typed and testable with LangGraph state, explicit per-turn dependencies, validated outputs, and bounded retrieval tools.
 - Preserve a simple deployment model on Railway: one frontend service, one stateless backend service, and hosted Supabase.
 
 
@@ -72,7 +72,7 @@ Backend:
 - Python 3.12+
 - FastAPI + Uvicorn
 - Pydantic v2 + pydantic-settings
-- PydanticAI for typed LLM orchestration
+- LangGraph for model, retrieval-tool, and answer-validation orchestration
 - OpenAI SDK for generation and embeddings
 - Supabase Python client for server-side database access
 - SQLAlchemy models + Alembic migrations for schema management
@@ -105,7 +105,7 @@ Supabase is responsible for authentication and durable product state. Browser ac
 5. The frontend sends the Supabase access token as `Authorization: Bearer <token>`.
 6. FastAPI verifies the token with Supabase Auth before doing any retrieval or LLM work.
 7. FastAPI creates a request-scoped context containing the authenticated user, chat thread, Supabase client, retrieval service, citation policy, and LLM settings.
-8. A PydanticAI agent retrieves relevant document chunks, generates a grounded answer, and returns typed output containing answer text and citations.
+8. A compiled LangGraph agent retrieves relevant document chunks, generates an answer, and validates its schema and citations before returning a typed `GroundedAnswer`.
 9. FastAPI streams assistant message parts back to the browser in the format expected by the AI SDK client.
 10. FastAPI persists the final user message, assistant message, cited chunks, and usage metadata to Supabase.
 
@@ -145,7 +145,7 @@ The exact API surface should be verified during implementation against the insta
 
 ## Backend LLM Layer
 
-PydanticAI should be introduced as the backend's orchestration layer for answer generation. It replaces ad hoc prompt calls with a typed agent boundary.
+LangGraph orchestrates answer generation with a compiled `StateGraph`. Its model node uses the existing OpenAI SDK; its tools node performs bounded retrieval; its validation node parses `GroundedAnswer` and checks citations against passages retrieved in the current turn. Invalid answers receive correction feedback and return to the model within the configured retry and request budgets.
 
 Recommended backend modules:
 
@@ -160,7 +160,7 @@ backend/app/
 │   ├── messages.py             # Converts AI SDK messages to and from internal message types
 │   └── streaming.py            # Emits AI SDK-compatible streaming events
 ├── assistant/
-│   ├── agent.py                # PydanticAI agent definition
+│   ├── agent.py                # Compiled LangGraph model/tools/validation workflow
 │   ├── deps.py                 # Runtime dependency dataclass for the agent
 │   ├── outputs.py              # GroundedAnswer, Citation, and SourcePassage
 │   └── instructions.md         # System instructions and product contract
@@ -184,16 +184,15 @@ The agent should receive explicit dependencies rather than reaching into globals
 ```python
 @dataclass
 class DocumentAgentDeps:
-    user_id: str
-    thread_id: str
     retriever: DocumentRetriever
-    grounding_validator: GroundingValidator
+    registry: RetrievalRegistry
+    client: AsyncOpenAI
 
 
 class GroundedAnswer(BaseModel):
     answer: str
     citations: list[Citation]
-    cited_passages: list[SourcePassage]
+    insufficient_evidence: bool = False
 ```
 
 The agent's instructions should encode the product contract:
@@ -204,7 +203,7 @@ The agent's instructions should encode the product contract:
 - Do not provide stock recommendations or investment advice.
 - Keep answers concise enough for analyst review, but include enough cited passages to verify the answer.
 
-Retrieval and grounding remain independent from PydanticAI. This keeps ingestion, retrieval tests, and citation validation testable without invoking the LLM.
+Retrieval and grounding remain independent from LangGraph. This keeps ingestion, retrieval tests, and citation validation testable without invoking the LLM. The graph itself is tested with a mocked OpenAI HTTP transport and real citation validation; see [the agent guide](../backend/app/assistant/README.md).
 
 ## Retrieval Strategy
 
@@ -216,7 +215,7 @@ Document Copilot uses hybrid retrieval:
 4. Fuse the two ranked lists in Python with Reciprocal Rank Fusion.
 5. Fetch the selected chunks, source document metadata, and optional neighboring chunks for grounding.
 
-This keeps the database responsible for efficient ranked retrieval and keeps the application responsible for product-specific ranking policy. The first implementation should avoid agent-generated SQL; the PydanticAI agent receives bounded tools such as `search_filings`, `read_chunk`, and `read_surrounding_chunks`.
+This keeps the database responsible for efficient ranked retrieval and keeps the application responsible for product-specific ranking policy. The LangGraph agent receives bounded tools such as `search_filings`, `read_chunk`, and `read_surrounding_chunks`.
 
 ## Supabase and FastAPI Communication
 
@@ -275,7 +274,7 @@ The `messages` payload should use the AI SDK UI message format at the frontend b
 
 Streaming responsibilities:
 
-- Send text deltas as the answer is generated.
+- Send progress statuses while the graph runs, followed by text deltas after answer validation succeeds.
 - Send citation/source metadata as structured parts once available.
 - Send clear error events for authentication failures, missing threads, retrieval failures, and grounding failures.
 - Persist only after the assistant run completes successfully, unless a separate partial-message model is deliberately introduced later.
@@ -403,7 +402,7 @@ Supabase remains hosted and stores the durable retrieval data. The Railway backe
 8. Add Markdown ingestion, chunking, embeddings, and Supabase writes.
 9. Add semantic search with `pgvector`.
 10. Add Postgres full-text search and Python RRF fusion.
-11. Add PydanticAI document agent with typed dependencies and typed answer output.
+11. Add a LangGraph document agent with typed state, per-turn dependencies, and validated answer output.
 12. Add citation validation and grounding enforcement.
 13. Add final UI for citations, source passages, empty states, and errors.
 

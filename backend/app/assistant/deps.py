@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from openai import AsyncOpenAI
+
 from app.retrieval.retriever import DocumentRetriever
 from app.retrieval.types import SourcePassage
 
@@ -23,3 +25,4 @@ class RetrievalRegistry:
 class DocumentAgentDeps:
     retriever: DocumentRetriever
     registry: RetrievalRegistry
+    client: AsyncOpenAI

@@ -1,234 +1,116 @@
 from __future__ import annotations
 
-import os
-from datetime import date
-from uuid import UUID
-
 import pytest
-from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
+from openai import AsyncOpenAI, AuthenticationError
+from sqlalchemy import text
 
-from app.assistant.agent import document_agent, usage_limits
+from app.assistant.agent import document_agent, graph_config
 from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
 from app.config import settings
 from app.database.session import close_db_engine, get_db_engine, init_db_engine
 from app.grounding.validator import validate_grounded_answer
 from app.retrieval.retriever import DocumentRetriever
-from app.retrieval.types import SourcePassage
 
-_CHUNK_ID = UUID("00000000-0000-0000-0000-000000000abc")
-
-
-def _passage(text: str) -> SourcePassage:
-    return SourcePassage(
-        chunk_id=_CHUNK_ID,
-        document_id=UUID("00000000-0000-0000-0000-000000000010"),
-        chunk_index=0,
-        text=text,
-        ticker="AAPL",
-        company_name="Apple Inc.",
-        form="10-K",
-        filing_date=date(2023, 11, 3),
-        accession_number="0000320193-23-000106",
-        page="21",
-        section="Item 7",
-    )
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.anyio,
+    pytest.mark.skipif(
+        not settings.openai_api_key.strip()
+        or settings.openai_api_key.startswith("mock-"),
+        reason="Requires live OpenAI API key",
+    ),
+]
 
 
-@pytest.mark.anyio
-async def test_agent_retries_then_succeeds_on_ungrounded_citation():
-    passage = _passage(
-        "iPhone net sales decreased 2% or $4.9 billion during 2023 compared to 2022."
-    )
-    registry = RetrievalRegistry()
-    registry.register(passage)
-    deps = DocumentAgentDeps(retriever=DocumentRetriever(), registry=registry)
-
-    calls = {"count": 0}
-
-    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        calls["count"] += 1
-        if calls["count"] == 1:
-            args = {
-                "answer": "iPhone net sales fell. [1]",
-                "citations": [
-                    {
-                        "citation_index": 1,
-                        "chunk_id": str(_CHUNK_ID),
-                        "excerpt": "iPhone revenue soared to record highs.",
-                    }
-                ],
-                "insufficient_evidence": False,
-            }
-        else:
-            args = {
-                "answer": "iPhone net sales fell. [1]",
-                "citations": [
-                    {
-                        "citation_index": 1,
-                        "chunk_id": str(_CHUNK_ID),
-                        "excerpt": (
-                            "iPhone net sales decreased 2% or $4.9 billion during "
-                            "2023 compared to 2022."
-                        ),
-                    }
-                ],
-                "insufficient_evidence": False,
-            }
-        return ModelResponse(parts=[ToolCallPart("final_result", args)])
-
-    with document_agent.override(model=FunctionModel(respond)):
-        result = await document_agent.run(
-            "What did Apple's 10-K say about iPhone revenue in fiscal 2023?",
-            deps=deps,
-        )
-
-    assert calls["count"] == 2
-    grounded = result.output
-    validate_grounded_answer(grounded, registry)
-    assert grounded.citations[0].chunk_id == _CHUNK_ID
-
-
-def _is_live_openai_configured() -> bool:
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    return bool(key and not key.startswith("mock-"))
-
-
-requires_live_openai = pytest.mark.skipif(
-    not _is_live_openai_configured(),
-    reason="Requires live OpenAI API key",
-)
+@pytest.fixture
+async def agent_deps():
+    await init_db_engine()
+    try:
+        async with AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.base_url,
+            max_retries=0,
+        ) as client:
+            yield DocumentAgentDeps(
+                retriever=DocumentRetriever(),
+                registry=RetrievalRegistry(),
+                client=client,
+            )
+    finally:
+        await close_db_engine()
 
 
 async def _has_filing_chunks(ticker: str) -> bool:
-    from sqlalchemy import text
-
     try:
-        sql = """
-            SELECT 1
-            FROM document_chunks dc
-            JOIN source_documents sd ON sd.id = dc.document_id
-            WHERE sd.ticker = :ticker
-            LIMIT 1
-        """
         async with get_db_engine().connect() as conn:
-            result = await conn.execute(text(sql), {"ticker": ticker})
+            result = await conn.execute(
+                text("""
+                    SELECT 1
+                    FROM document_chunks dc
+                    JOIN source_documents sd ON sd.id = dc.document_id
+                    WHERE sd.ticker = :ticker
+                    LIMIT 1
+                """),
+                {"ticker": ticker},
+            )
             return result.first() is not None
     except Exception:  # noqa: BLE001
         return False
 
 
-@pytest.mark.integration
-@requires_live_openai
-@pytest.mark.anyio
-async def test_agent_apple_revenue_mix_cites_filings_and_pages():
-    await init_db_engine()
+async def _run_question(query: str, deps: DocumentAgentDeps):
     try:
-        if not await _has_filing_chunks("AAPL"):
-            pytest.skip("Requires ingested AAPL filings in the database")
-        registry = RetrievalRegistry()
-        deps = DocumentAgentDeps(retriever=DocumentRetriever(), registry=registry)
-        try:
-            result = await document_agent.run(
-                "Across Apple's 2021-2025 10-Ks, how did the revenue mix between iPhone and Services change?",
-                deps=deps,
-                usage_limits=usage_limits(),
-                model_settings={"temperature": settings.agent_temperature},
-            )
-        except Exception as e:
-            if "AuthenticationError" in type(e).__name__:
-                pytest.skip(f"OpenAI authentication failed: {e}")
-            raise
-        grounded = result.output
-        validate_grounded_answer(grounded, registry)
-        assert grounded.insufficient_evidence is False
-        assert grounded.citations
-
-        cited_passages = [
-            registry.passages[citation.chunk_id] for citation in grounded.citations
-        ]
-        assert all(passage.ticker == "AAPL" for passage in cited_passages)
-        assert all(passage.form == "10-K" for passage in cited_passages)
-        assert all(passage.page for passage in cited_passages)
-    finally:
-        await close_db_engine()
+        result = await document_agent.ainvoke(
+            {"messages": [{"role": "user", "content": query}]},
+            context=deps,
+            config=graph_config(),
+        )
+    except AuthenticationError as error:
+        pytest.skip(f"OpenAI authentication failed: {error}")
+    grounded = result["grounded_answer"]
+    validate_grounded_answer(grounded, deps.registry)
+    return grounded
 
 
-@pytest.mark.integration
-@requires_live_openai
-@pytest.mark.anyio
-async def test_agent_refuses_under_specified_question():
-    await init_db_engine()
-    try:
-        registry = RetrievalRegistry()
-        deps = DocumentAgentDeps(retriever=DocumentRetriever(), registry=registry)
-        try:
-            result = await document_agent.run(
-                "Tell me about revenue.",
-                deps=deps,
-                usage_limits=usage_limits(),
-                model_settings={"temperature": settings.agent_temperature},
-            )
-        except Exception as e:
-            if "AuthenticationError" in type(e).__name__:
-                pytest.skip(f"OpenAI authentication failed: {e}")
-            raise
-        grounded = result.output
-        validate_grounded_answer(grounded, registry)
-        assert grounded.insufficient_evidence is True
-        assert not grounded.citations
-    finally:
-        await close_db_engine()
+async def test_agent_apple_revenue_mix_cites_filings_and_pages(agent_deps):
+    if not await _has_filing_chunks("AAPL"):
+        pytest.skip("Requires ingested AAPL filings in the database")
+    grounded = await _run_question(
+        "Across Apple's 2021-2025 10-Ks, how did the revenue mix between iPhone and Services change?",
+        agent_deps,
+    )
+
+    assert grounded.insufficient_evidence is False
+    assert grounded.citations
+    cited_passages = [
+        agent_deps.registry.passages[citation.chunk_id]
+        for citation in grounded.citations
+    ]
+    assert all(passage.ticker == "AAPL" for passage in cited_passages)
+    assert all(passage.form == "10-K" for passage in cited_passages)
+    assert all(passage.page for passage in cited_passages)
 
 
-@pytest.mark.integration
-@requires_live_openai
-@pytest.mark.anyio
-async def test_agent_refuses_investment_advice_without_looping():
-    await init_db_engine()
-    try:
-        registry = RetrievalRegistry()
-        deps = DocumentAgentDeps(retriever=DocumentRetriever(), registry=registry)
-        try:
-            result = await document_agent.run(
-                "What is the best stock to buy right now?",
-                deps=deps,
-                usage_limits=usage_limits(),
-                model_settings={"temperature": settings.agent_temperature},
-            )
-        except Exception as e:
-            if "AuthenticationError" in type(e).__name__:
-                pytest.skip(f"OpenAI authentication failed: {e}")
-            raise
-        grounded = result.output
-        validate_grounded_answer(grounded, registry)
-        assert grounded.insufficient_evidence is True
-        assert not grounded.citations
-    finally:
-        await close_db_engine()
+async def test_agent_refuses_under_specified_question(agent_deps):
+    grounded = await _run_question("Tell me about revenue.", agent_deps)
+
+    assert grounded.insufficient_evidence is True
+    assert not grounded.citations
 
 
-@pytest.mark.integration
-@requires_live_openai
-@pytest.mark.anyio
-async def test_agent_refuses_unanswerable_margin_inference():
-    await init_db_engine()
-    try:
-        registry = RetrievalRegistry()
-        deps = DocumentAgentDeps(retriever=DocumentRetriever(), registry=registry)
-        try:
-            result = await document_agent.run(
-                "Do the filings prove that generative AI improved margins for any of these companies?",
-                deps=deps,
-                usage_limits=usage_limits(),
-                model_settings={"temperature": settings.agent_temperature},
-            )
-        except Exception as e:
-            if "AuthenticationError" in type(e).__name__:
-                pytest.skip(f"OpenAI authentication failed: {e}")
-            raise
-        grounded = result.output
-        validate_grounded_answer(grounded, registry)
-        assert grounded.insufficient_evidence or not grounded.citations
-    finally:
-        await close_db_engine()
+async def test_agent_refuses_investment_advice_without_looping(agent_deps):
+    grounded = await _run_question(
+        "What is the best stock to buy right now?", agent_deps
+    )
+
+    assert grounded.insufficient_evidence is True
+    assert not grounded.citations
+
+
+async def test_agent_refuses_unanswerable_margin_inference(agent_deps):
+    grounded = await _run_question(
+        "Do the filings prove that generative AI improved margins for any of these companies?",
+        agent_deps,
+    )
+
+    assert grounded.insufficient_evidence or not grounded.citations

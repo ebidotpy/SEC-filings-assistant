@@ -161,7 +161,7 @@ Goal: grounded answers with enforced citations — the core product contract.
 
 - [x] `assistant/instructions.md` — product contract (cite everything, refuse to invent, no stock picks)
   - Done: `backend/app/assistant/instructions.md`
-- [x] PydanticAI agent with typed deps (`DocumentAgentDeps`) and output (`GroundedAnswer`)
+- [x] LangGraph agent with typed state, per-turn deps (`DocumentAgentDeps`), and validated output (`GroundedAnswer`)
   - Done: `backend/app/assistant/agent.py`, `deps.py`, `outputs.py`
 - [x] Agent tools: `search_filings`, `read_chunk`, `read_surrounding_chunks`
   - Done: `backend/app/assistant/tools.py` wrapping `DocumentRetriever`

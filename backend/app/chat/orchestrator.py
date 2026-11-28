@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-import asyncio
-import json
 from collections.abc import AsyncIterator
-from typing import Any
+from contextlib import aclosing
 from uuid import UUID, uuid4
 
+import logfire
 import structlog
 from fastapi import HTTPException, status
-from pydantic_ai.exceptions import (
-    ModelHTTPError,
-    UnexpectedModelBehavior,
-    UsageLimitExceeded,
-)
-from pydantic_ai.messages import FunctionToolCallEvent, PartStartEvent
-from pydantic_ai.tools import RunContext
+from langgraph.errors import GraphRecursionError
+from openai import APIError, AsyncOpenAI
 
-from app.assistant.agent import document_agent, usage_limits
+from app.assistant.agent import AgentLimitError, document_agent, graph_config
 from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
+from app.assistant.outputs import GroundedAnswer
 from app.auth.dependencies import AuthenticatedUser
 from app.chat.messages import (
     UIMessage,
@@ -50,8 +45,6 @@ from app.database.users import ensure_app_user
 from app.grounding.validator import GroundingError, validate_grounded_answer
 from app.retrieval.retriever import DocumentRetriever
 
-_STATUS_POLL_TIMEOUT = 0.25
-
 logger = structlog.get_logger(__name__)
 
 
@@ -68,77 +61,6 @@ async def require_owned_thread(thread_id: UUID, user_id: UUID) -> ThreadRow:
             detail="Not allowed to access this thread",
         )
     return thread
-
-
-def _tool_args(args: str | dict[str, Any] | None) -> dict[str, Any]:
-    if args is None:
-        return {}
-    if isinstance(args, dict):
-        return args
-    try:
-        parsed = json.loads(args)
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def _status_for_tool_call(event: FunctionToolCallEvent) -> str:
-    tool_name = event.part.tool_name
-    args = _tool_args(event.part.args)
-
-    if tool_name == "search_filings":
-        ticker = args.get("ticker")
-        if ticker:
-            return f"Searching filings for {ticker}…"
-        return "Searching filings…"
-    if tool_name in ("read_chunk", "read_surrounding_chunks"):
-        return "Reading filing passages…"
-    return "Retrieving source documents…"
-
-
-def _make_event_stream_handler(
-    status_queue: asyncio.Queue[str],
-) -> Any:
-    drafting_sent = False
-
-    async def handler(
-        _ctx: RunContext[DocumentAgentDeps],
-        events: AsyncIterator[Any],
-    ) -> None:
-        nonlocal drafting_sent
-        async for event in events:
-            if isinstance(event, FunctionToolCallEvent):
-                await status_queue.put(_status_for_tool_call(event))
-            elif (
-                isinstance(event, PartStartEvent)
-                and not drafting_sent
-                and getattr(event.part, "part_kind", None) == "text"
-            ):
-                drafting_sent = True
-                await status_queue.put("Drafting grounded answer…")
-
-    return handler
-
-
-async def _yield_status_updates(
-    status_queue: asyncio.Queue[str],
-    agent_task: asyncio.Task[Any],
-) -> AsyncIterator[str]:
-    while not agent_task.done():
-        try:
-            message = await asyncio.wait_for(
-                status_queue.get(),
-                timeout=_STATUS_POLL_TIMEOUT,
-            )
-        except TimeoutError:
-            continue
-        async for chunk in stream_status(message):
-            yield chunk
-
-    while not status_queue.empty():
-        message = status_queue.get_nowait()
-        async for chunk in stream_status(message):
-            yield chunk
 
 
 async def run_grounded_turn(
@@ -185,71 +107,72 @@ async def run_grounded_turn(
         )
 
         registry = RetrievalRegistry()
-        deps = DocumentAgentDeps(
-            retriever=DocumentRetriever(),
-            registry=registry,
-        )
         history = to_model_history(prior_messages(messages, user_message))
-        status_queue: asyncio.Queue[str] = asyncio.Queue()
 
         async for chunk in stream_start(str(assistant_message_id)):
             yield chunk
         async for chunk in stream_status("Analyzing your question…"):
             yield chunk
 
-        agent_task = asyncio.create_task(
-            document_agent.run(
-                user_text,
-                deps=deps,
-                message_history=history,
-                usage_limits=usage_limits(),
-                model_settings={"temperature": settings.agent_temperature},
-                metadata={
-                    "thread_id": str(thread_id),
-                    "user_id": str(user.id),
-                },
-                event_stream_handler=_make_event_stream_handler(status_queue),
-            )
-        )
-
         try:
-            async for chunk in _yield_status_updates(status_queue, agent_task):
-                yield chunk
+            async with AsyncOpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.base_url,
+                max_retries=0,
+            ) as client:
+                deps = DocumentAgentDeps(
+                    retriever=DocumentRetriever(), registry=registry, client=client
+                )
+                grounded: GroundedAnswer | None = None
+                with logfire.span(
+                    "document_agent", thread_id=str(thread_id), user_id=str(user.id)
+                ):
+                    async with aclosing(
+                        document_agent.astream(
+                            {
+                                "messages": [
+                                    *history,
+                                    {"role": "user", "content": user_text},
+                                ]
+                            },
+                            context=deps,
+                            config=graph_config(
+                                {"thread_id": str(thread_id), "user_id": str(user.id)}
+                            ),
+                            stream_mode=["custom", "values"],
+                        )
+                    ) as events:
+                        async for mode, data in events:
+                            if mode == "custom":
+                                async for chunk in stream_status(data):
+                                    yield chunk
+                            elif mode == "values":
+                                grounded = data.get("grounded_answer")
 
-            result = await agent_task
-            grounded = result.output
-
-            async for chunk in stream_status("Validating citations…"):
-                yield chunk
+            if grounded is None:
+                raise GroundingError("The graph completed without a grounded answer")
             validate_grounded_answer(grounded, registry)
-        except (GroundingError, UnexpectedModelBehavior):
+        except GroundingError:
             logger.warning("chat_turn_grounding_failed", exc_info=True)
             async for chunk in stream_error(
                 "The assistant response failed citation validation. Please try again."
             ):
                 yield chunk
             return
-        except UsageLimitExceeded:
+        except (AgentLimitError, GraphRecursionError):
             logger.warning("chat_turn_usage_limit_exceeded", exc_info=True)
             async for chunk in stream_error(
                 "The assistant run exceeded its tool or request limit. Please narrow the question."
             ):
                 yield chunk
             return
-        except ModelHTTPError:
-            # logger.error("chat_turn_model_unavailable", exc_info=True)
+        except APIError:
             logger.exception("chat_turn_model_unavailable")
             async for chunk in stream_error(
                 "The language model service is unavailable. Please try again shortly."
             ):
                 yield chunk
             return
-
-        for citation in grounded.citations:
-            if citation.chunk_id not in registry.passages:
-                passage = await deps.retriever.get_chunk(citation.chunk_id)
-                if passage is not None:
-                    registry.register(passage)
 
         citation_payloads = [
             citation_payload(citation, registry.passages[citation.chunk_id])

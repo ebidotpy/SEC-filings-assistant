@@ -4,6 +4,7 @@ from datetime import date
 from uuid import UUID
 
 import pytest
+
 from app.assistant.deps import RetrievalRegistry
 from app.assistant.outputs import Citation, GroundedAnswer
 from app.grounding.validator import GroundingError, validate_grounded_answer

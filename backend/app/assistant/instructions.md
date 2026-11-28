@@ -30,7 +30,7 @@ Your job is to answer questions about SEC filings in the curated corpus using on
 
 ## Output format
 
-Return structured output with:
+Call submit_answer exactly once after gathering the evidence you need. Return structured output with:
 
 - `answer`: the full response text with inline citation markers.
 - `citations`: supporting citations with `citation_index`, `chunk_id`, and `excerpt`.

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import logfire
 import structlog
@@ -34,18 +33,16 @@ def configure_logging() -> None:
 
 
 def configure_logfire() -> None:
-    """Initialize Logfire for Pydantic AI agent debugging."""
-    if settings.logfire_token is not None:
-        os.environ["LOGFIRE_TOKEN"] = settings.logfire_token
-
+    """Initialize Logfire for LangGraph runs and OpenAI model requests."""
     logfire.configure(
+        token=settings.logfire_token,
         send_to_logfire=settings.logfire_send_to_logfire,
         service_name=settings.logfire_service_name,
         environment=settings.logfire_environment,
     )
 
-    if settings.logfire_instrument_pydantic_ai:
-        logfire.instrument_pydantic_ai()
+    if settings.logfire_instrument_openai:
+        logfire.instrument_openai()
 
     if settings.logfire_instrument_system_metrics:
         logfire.instrument_system_metrics()

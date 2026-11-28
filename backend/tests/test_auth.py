@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+
 from app.auth.security import (
     create_access_token,
     decode_access_token,
@@ -8,7 +10,6 @@ from app.auth.security import (
     verify_password,
 )
 from app.main import app
-from httpx import ASGITransport, AsyncClient
 
 
 def test_password_hashing():

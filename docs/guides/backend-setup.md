@@ -2,14 +2,14 @@
 
 This project uses a separate Python + FastAPI backend because the server is responsible for AI and document-processing work, not just basic web CRUD. Python gives us the strongest ecosystem for ingestion, chunking, embeddings, retrieval, evaluation, and LLM workflows. Keeping this logic behind a dedicated API also keeps the frontend focused on the user experience while the backend owns data access, orchestration, and grounding.
 
-## Init (from empty `backend/`)
+## Install dependencies
 
 ```bash
 cd backend
-uv sync
-uv add fastapi uvicorn pydantic pydantic-settings httpx structlog openai supabase pydantic-ai sqlalchemy alembic "psycopg[binary]" pgvector
-uv add --dev pytest ruff
+uv sync --locked
 ```
+
+`pyproject.toml` and `uv.lock` pin the backend and development dependencies, including LangGraph for document-agent orchestration. Pydantic still validates settings, HTTP input, retrieval tool arguments, and grounded answers. The existing OpenAI SDK handles model calls and keyword extraction.
 
 ## Database migrations
 

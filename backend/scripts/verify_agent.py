@@ -6,34 +6,35 @@ import argparse
 import asyncio
 import sys
 
-from app.observability import configure_logfire
-from pydantic_ai.exceptions import UnexpectedModelBehavior
+from openai import AsyncOpenAI
 
-from app.assistant.agent import document_agent, usage_limits
+from app.assistant.agent import AgentLimitError, document_agent, graph_config
 from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
 from app.config import settings
 from app.database.session import close_db_engine, init_db_engine
 from app.grounding.validator import GroundingError, validate_grounded_answer
+from app.observability import configure_logfire
 from app.retrieval.retriever import DocumentRetriever
-
-configure_logfire()
 
 
 async def run_question(query: str) -> int:
     await init_db_engine()
     try:
         registry = RetrievalRegistry()
-        deps = DocumentAgentDeps(
-            retriever=DocumentRetriever(),
-            registry=registry,
-        )
-        result = await document_agent.run(
-            query,
-            deps=deps,
-            usage_limits=usage_limits(),
-            model_settings={"temperature": settings.agent_temperature},
-        )
-        grounded = result.output
+        async with AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.base_url,
+            max_retries=0,
+        ) as client:
+            deps = DocumentAgentDeps(
+                retriever=DocumentRetriever(), registry=registry, client=client
+            )
+            result = await document_agent.ainvoke(
+                {"messages": [{"role": "user", "content": query}]},
+                context=deps,
+                config=graph_config(),
+            )
+        grounded = result["grounded_answer"]
         validate_grounded_answer(grounded, registry)
 
         print(f"Question: {query}\n")
@@ -52,8 +53,8 @@ async def run_question(query: str) -> int:
             )
             print(f"      {citation.excerpt[:200]}")
         return 0
-    except (GroundingError, UnexpectedModelBehavior) as error:
-        print(f"Grounding validation failed: {error}", file=sys.stderr)
+    except (GroundingError, AgentLimitError) as error:
+        print(f"Agent validation or usage limit failed: {error}", file=sys.stderr)
         return 1
     finally:
         await close_db_engine()
@@ -61,10 +62,11 @@ async def run_question(query: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Verify grounded agent answers against Supabase corpus.",
+        description="Verify grounded agent answers against the ingested corpus.",
     )
     parser.add_argument("query", help="Analyst question to ask the agent")
     args = parser.parse_args()
+    configure_logfire()
 
     try:
         return asyncio.run(run_question(args.query))

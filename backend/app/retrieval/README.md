@@ -28,7 +28,7 @@ Turn-level orchestration and streaming are documented in [`../chat/README.md`](.
 
 ```mermaid
 flowchart TD
-    Q[User question] --> A[PydanticAI agent]
+    Q[User question] --> A[LangGraph agent]
     A --> T1["search_filings(query, filters?)"]
     A --> T2["read_chunk(chunk_id)"]
     A --> T3["read_surrounding_chunks(chunk_id, radius?)"]
@@ -39,11 +39,12 @@ flowchart TD
     T1 --> REG[RetrievalRegistry]
     T2 --> REG
     T3 --> REG
-    A --> GA[GroundedAnswer]
+    A --> GA[submit_answer / GroundedAnswer]
     GA --> V["validate_grounded_answer(answer, registry)"]
     REG --> V
     V -->|pass| P[Persist message + citations]
-    V -->|GroundingError| E[Stream error — no assistant row written]
+    V -->|invalid answer| A
+    V -->|corrections exhausted| E[Stream error — no assistant row written]
 ```
 
 Each chat turn gets a **fresh** `RetrievalRegistry`. Only passages returned by retrieval tools in that turn are eligible for citation. The validator rejects answers that cite chunks the agent never retrieved, or excerpts that do not appear in the stored passage text.
@@ -58,7 +59,7 @@ Each chat turn gets a **fresh** `RetrievalRegistry`. Only passages returned by r
 
 2. **Embed query and extract FTS keywords (parallel)** — Two concurrent calls:
    - **Semantic** — `embed_query()` embeds the full query string via OpenAI (`settings.openai_embedding_model`, default `text-embedding-3-small`, 1536 dimensions). Same embedding path as ingestion.
-   - **Full-text** — `extract_search_keywords()` calls a small pydantic-ai agent (`settings.retrieval_keyword_model`) to produce 3–5 filing-specific terms. Active `SearchFilters` are passed so the model skips redundant terms (for example, omit "Apple" when `ticker=AAPL`). On failure, the full query is used as a fallback.
+   - **Full-text** — `extract_search_keywords()` uses OpenAI structured-output parsing (`settings.retrieval_keyword_model`) to produce 3–5 filing-specific terms. Active `SearchFilters` are passed so the model skips redundant terms (for example, omit "Apple" when `ticker=AAPL`). API errors, invalid output, and refusals fall back to the full query.
 
 3. **Parallel ranked search** — `hybrid_search_chunk_ids()` runs two Postgres queries concurrently:
    - **Semantic** — Cosine distance on `document_chunks.embedding` via pgvector (`<=>`). Results ordered by ascending distance. Optional floor: `retrieval_semantic_min_similarity` (default `0.0`).
@@ -93,7 +94,7 @@ Beyond search, the retriever supports:
 
 ## Agent tools
 
-Tools live in `assistant/tools.py` but are the primary consumer of retrieval. Each tool registers returned passages in `ctx.deps.registry` so grounding can verify citations later.
+Tools live in `assistant/tools.py` but are the primary consumer of retrieval. Each tool receives `DocumentAgentDeps` from the graph's runtime context and registers returned passages in `deps.registry` so grounding can verify citations later.
 
 | Tool | Behavior |
 |------|----------|
@@ -134,7 +135,7 @@ class GroundedAnswer(BaseModel):
 
 ### Validation rules
 
-`validate_grounded_answer(answer, registry)` in `grounding/validator.py` runs **after** the agent completes and **before** streaming or persistence. It raises `GroundingError` on any violation:
+`validate_grounded_answer(answer, registry)` in `grounding/validator.py` runs inside the graph's validation node and once more before answer streaming or persistence. It raises `GroundingError` on any violation:
 
 | Rule | Insufficient-evidence path | Normal answer path |
 |------|---------------------------|-------------------|
@@ -147,11 +148,7 @@ class GroundedAnswer(BaseModel):
 
 Whitespace is collapsed when comparing excerpts to passage text, so minor formatting differences do not fail validation.
 
-On `GroundingError`, the orchestrator streams a user-facing error and **does not** write an assistant message or citation rows. The user can retry the turn.
-
-### Post-validation hydration
-
-If validation passes, the orchestrator may fetch any cited chunk not already in the registry (defensive — should not happen when validation succeeds) before building citation payloads for the client and database.
+Invalid answers receive correction feedback inside the graph. When corrections are exhausted, the orchestrator streams a user-facing error and **does not** write an assistant message or citation rows. Valid citation payloads are built directly from the current turn's registry.
 
 ## Configuration
 
@@ -197,6 +194,7 @@ Filter columns on `source_documents`: `ticker`, `fiscal_year`, `form`.
 | `tests/retrieval/test_integration.py` | Live DB + OpenAI (`@pytest.mark.integration`) |
 | `tests/grounding/test_validator.py` | Full citation contract |
 | `tests/assistant/test_tools.py` | Tool registration in `RetrievalRegistry` |
+| `tests/assistant/test_agent.py` | Real LangGraph routing, grounding retries, and request/tool limits |
 
 Fast suite: `uv run pytest -m "not integration"` from `backend/`.
 
@@ -207,4 +205,4 @@ Manual smoke test: `uv run python scripts/verify_retrieval.py`.
 - **Hybrid over single-mode** — Semantic search finds paraphrases; full-text catches exact tickers, figures, and legal phrases. RRF combines both without calibrating scores across modalities.
 - **Search in Postgres, fuse in Python** — Keeps ranking policy in application code and avoids a single complex SQL fusion query.
 - **Registry per turn** — Citations cannot reference chunks from prior turns or hallucinated IDs; the validator only sees what tools returned in the current run.
-- **Grounding separate from PydanticAI** — Retrieval and validation are unit-testable without calling the LLM. The prompt instructs good behavior; the validator enforces it.
+- **Grounding separate from LangGraph** — Retrieval and validation are unit-testable without calling the LLM. The prompt instructs good behavior; the validator enforces it.

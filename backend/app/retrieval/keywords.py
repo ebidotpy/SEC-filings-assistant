@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
-from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
+from openai import AsyncOpenAI, OpenAIError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.config import settings
 from app.retrieval.types import SearchFilters
@@ -52,22 +50,6 @@ def _build_prompt(query: str, filters: SearchFilters | None) -> str:
     )
 
 
-def _build_keyword_agent() -> Agent[None, SearchKeywords]:
-    model = OpenAIChatModel(
-        settings.retrieval_keyword_model,
-        provider=OpenAIProvider(api_key=settings.openai_api_key),
-    )
-    return Agent(
-        model,
-        name="keyword_extractor",
-        output_type=SearchKeywords,
-        instructions=load_keyword_instructions(),
-    )
-
-
-_keyword_agent = _build_keyword_agent()
-
-
 async def extract_search_keywords(
     query: str,
     *,
@@ -78,12 +60,27 @@ async def extract_search_keywords(
     if not query:
         return query
 
+    model_options = (
+        {}
+        if settings.retrieval_keyword_model.startswith(("gpt-5", "o1", "o3", "o4"))
+        else {"temperature": settings.retrieval_keyword_temperature}
+    )
     try:
-        result = await _keyword_agent.run(
-            _build_prompt(query, filters),
-            model_settings={"temperature": settings.retrieval_keyword_temperature},
-        )
-        keywords = " ".join(result.output.terms)
-        return keywords if keywords.strip() else query
-    except Exception:  # noqa: BLE001
+        async with AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.base_url,
+            max_retries=0,
+        ) as client:
+            completion = await client.chat.completions.parse(
+                model=settings.retrieval_keyword_model,
+                messages=[
+                    {"role": "system", "content": load_keyword_instructions()},
+                    {"role": "user", "content": _build_prompt(query, filters)},
+                ],
+                response_format=SearchKeywords,
+                **model_options,
+            )
+        keywords = completion.choices[0].message.parsed
+        return " ".join(keywords.terms) if keywords is not None else query
+    except (OpenAIError, ValidationError):
         return query

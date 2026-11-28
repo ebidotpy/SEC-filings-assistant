@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -36,9 +36,9 @@ class Settings(BaseSettings):
 
     agent_temperature: float = 0.2
     agent_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "low"
-    agent_max_requests: int = 20
-    agent_max_tool_calls: int = 30
-    agent_output_retries: int = 2
+    agent_max_requests: int = Field(default=20, ge=1)
+    agent_max_tool_calls: int = Field(default=30, ge=0)
+    agent_output_retries: int = Field(default=2, ge=0)
 
     log_level: str = "INFO"
     log_json: bool = False
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     logfire_send_to_logfire: str = "if-token-present"
     logfire_service_name: str = "document-copilot-agent"
     logfire_environment: str = "development"
-    logfire_instrument_pydantic_ai: bool = True
+    logfire_instrument_openai: bool = True
     logfire_instrument_system_metrics: bool = True
 
     retrieval_candidate_k: int = 50

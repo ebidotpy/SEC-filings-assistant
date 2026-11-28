@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import json
+from unittest.mock import patch
 
+import httpx
 import pytest
+from pydantic import ValidationError
+
 from app.retrieval.keywords import (
     SearchKeywords,
     _build_prompt,
     extract_search_keywords,
 )
 from app.retrieval.types import SearchFilters
-from pydantic import ValidationError
 
 
 def test_search_keywords_requires_three_to_five_non_empty_terms():
@@ -38,31 +41,46 @@ def test_build_prompt_includes_query_and_filters():
 
 
 @pytest.mark.anyio
-async def test_extract_search_keywords_returns_joined_terms():
-    mock_result = MagicMock()
-    mock_result.output = SearchKeywords(terms=["iPhone", "Services", "revenue", "mix"])
+async def test_extract_search_keywords_returns_joined_terms(
+    mock_openai, model_completion
+):
+    mock_openai.responses.append(
+        model_completion(
+            content=json.dumps({"terms": ["iPhone", "Services", "revenue", "mix"]})
+        )
+    )
 
-    with patch(
-        "app.retrieval.keywords._keyword_agent.run",
-        new=AsyncMock(return_value=mock_result),
-    ) as run:
+    with patch("app.retrieval.keywords.AsyncOpenAI", return_value=mock_openai.client):
         keywords = await extract_search_keywords(
             "Apple revenue mix iPhone Services Mac iPad Wearables 2021 2025",
             filters=SearchFilters(ticker="AAPL"),
         )
 
     assert keywords == "iPhone Services revenue mix"
-    run.assert_awaited_once()
-    prompt = run.await_args.args[0]
+    assert len(mock_openai.requests) == 1
+    prompt = mock_openai.requests[0]["messages"][-1]["content"]
     assert "ticker=AAPL" in prompt
+    assert mock_openai.requests[0]["response_format"]["json_schema"]["strict"] is True
+    assert "temperature" not in mock_openai.requests[0]
 
 
 @pytest.mark.anyio
-async def test_extract_search_keywords_falls_back_on_error():
-    with patch(
-        "app.retrieval.keywords._keyword_agent.run",
-        new=AsyncMock(side_effect=RuntimeError("model unavailable")),
-    ):
+async def test_extract_search_keywords_falls_back_on_api_error(mock_openai):
+    mock_openai.responses.append(
+        httpx.Response(503, json={"error": {"message": "model unavailable"}})
+    )
+    with patch("app.retrieval.keywords.AsyncOpenAI", return_value=mock_openai.client):
+        query = "NVIDIA Data Center demand drivers"
+        assert await extract_search_keywords(query) == query
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("content", ["not JSON", '{"terms": ["one", "two"]}', None])
+async def test_extract_search_keywords_falls_back_on_invalid_output(
+    mock_openai, model_completion, content
+):
+    mock_openai.responses.append(model_completion(content=content))
+    with patch("app.retrieval.keywords.AsyncOpenAI", return_value=mock_openai.client):
         query = "NVIDIA Data Center demand drivers"
         assert await extract_search_keywords(query) == query
 
@@ -70,8 +88,7 @@ async def test_extract_search_keywords_falls_back_on_error():
 @pytest.mark.anyio
 async def test_extract_search_keywords_empty_query_short_circuits():
     with patch(
-        "app.retrieval.keywords._keyword_agent.run",
-        new=AsyncMock(),
-    ) as run:
+        "app.retrieval.keywords.AsyncOpenAI",
+    ) as client:
         assert await extract_search_keywords("   ") == ""
-        run.assert_not_awaited()
+        client.assert_not_called()

@@ -13,7 +13,6 @@ from app.chat.messages import (
     ui_message_from_row,
 )
 from app.database.chats import CitationRow, MessageRow
-from pydantic_ai.messages import ModelRequest, ModelResponse
 
 
 def test_to_model_history_converts_user_and_assistant_messages():
@@ -37,9 +36,10 @@ def test_to_model_history_converts_user_and_assistant_messages():
 
     history = to_model_history(messages[:-1])
 
-    assert len(history) == 2
-    assert isinstance(history[0], ModelRequest)
-    assert isinstance(history[1], ModelResponse)
+    assert history == [
+        {"role": "user", "content": "What changed in AWS margins?"},
+        {"role": "assistant", "content": "AWS margins improved. [1]"},
+    ]
 
 
 def test_prior_messages_excludes_current_user_message():

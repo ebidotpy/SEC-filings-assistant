@@ -9,6 +9,8 @@ from datetime import date
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from sqlalchemy import delete, select
+
 from app.database.models.document_chunk import DocumentChunk
 from app.database.models.source_document import SourceDocument
 from app.database.session import get_db_session
@@ -19,7 +21,6 @@ from ingest.chunking import (
     parse_markdown_to_docling,
 )
 from ingest.embeddings import embed_texts
-from sqlalchemy import delete, select
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MARKDOWN_DIR = REPO_ROOT / "data" / "Markdown"

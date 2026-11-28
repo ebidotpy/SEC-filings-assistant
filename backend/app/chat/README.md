@@ -2,7 +2,7 @@
 
 Turn orchestration, AI SDK message conversion, and SSE streaming for grounded Q&A over SEC filings.
 
-The chat layer sits between the HTTP API (`app/api/chat.py`) and the PydanticAI agent (`app/assistant/`). It owns the request lifecycle: validate input, persist messages, run the agent, enforce grounding, stream the response, and write citations back to Postgres.
+The chat layer sits between the HTTP API (`app/api/chat.py`) and the compiled LangGraph agent (`app/assistant/`). It owns the request lifecycle: validate input, persist messages, run the agent, enforce grounding, stream the response, and write citations back to Postgres. The graph's nodes and invocation API are documented in [`../assistant/README.md`](../assistant/README.md).
 
 ## Modules
 
@@ -23,11 +23,12 @@ All tunables live in `app/config.py` (env vars in `.env.example`). Values below 
 
 | Setting | Env var | Default | Used by |
 |---------|---------|---------|---------|
-| Chat model | `OPENAI_CHAT_MODEL` | `gpt-5-nano` | PydanticAI agent |
-| Temperature | `AGENT_TEMPERATURE` | `0.2` | Passed to `document_agent.run()` |
-| Reasoning effort | `AGENT_REASONING_EFFORT` | `low` | Agent-level default `model_settings` in `assistant/agent.py` |
-| Max LLM requests per turn | `AGENT_MAX_REQUESTS` | `20` | `UsageLimits.request_limit` |
-| Max tool calls per turn | `AGENT_MAX_TOOL_CALLS` | `30` | `UsageLimits.tool_calls_limit` |
+| Chat model | `OPENAI_CHAT_MODEL` | `gpt-5-mini` | LangGraph model node |
+| Temperature | `AGENT_TEMPERATURE` | `0.2` | Standard chat-model requests |
+| Reasoning effort | `AGENT_REASONING_EFFORT` | `low` | Reasoning-model requests |
+| Max LLM requests per turn | `AGENT_MAX_REQUESTS` | `20` | Graph model-request counter |
+| Max retrieval calls per turn | `AGENT_MAX_TOOL_CALLS` | `30` | Graph tool counter, checked before each batch |
+| Output corrections | `AGENT_OUTPUT_RETRIES` | `2` | Schema and citation validation retries |
 
 ### Retrieval (agent tools)
 
@@ -62,16 +63,15 @@ flowchart TD
     C --> D{"Valid non-empty text?"}
     D -->|no| E["HTTP 422"]
     D -->|yes| F["insert_message (user)"]
-    F --> G["Build DocumentAgentDeps\n(retriever + RetrievalRegistry)"]
+    F --> G["Build DocumentAgentDeps\n(retriever + RetrievalRegistry + OpenAI client)"]
     G --> H["to_model_history(prior messages)"]
-    H --> I["document_agent.run()\n+ search/read tools"]
+    H --> I["document_agent.astream()\nmodel + tools + validation"]
     I --> J{"Success?"}
     J -->|GroundingError| K["stream_error (validation failed)"]
-    J -->|UsageLimitExceeded| L["stream_error (limits exceeded)"]
-    J -->|ModelHTTPError| M["stream_error (LLM unavailable)"]
+    J -->|AgentLimitError| L["stream_error (limits exceeded)"]
+    J -->|APIError| M["stream_error (LLM unavailable)"]
     J -->|OK| N["validate_grounded_answer()"]
-    N --> O["Hydrate missing passages for citations"]
-    O --> P["stream_grounded_answer()\ntext deltas + data-citations + finish"]
+    N --> P["stream_grounded_answer()\ntext deltas + data-citations + finish"]
     P --> Q["insert_message (assistant)"]
     Q --> R["insert_citations"]
     R --> S["touch_thread (auto-title if first turn)"]
@@ -83,18 +83,18 @@ flowchart TD
 
 2. **Authorization** — User is ensured in the app DB; thread must exist and belong to the user (`404` / `403` otherwise).
 
-3. **User message** — The last `role: "user"` message is taken as the current turn. Prior messages (same `id` excluded) become PydanticAI `message_history`.
+3. **User message** — The last `role: "user"` message is taken as the current turn. Prior messages (same `id` excluded) become OpenAI user/assistant message dictionaries in the graph's input state.
 
 4. **Persist user turn** — User text and parts are stored with the next monotonic `sequence` for the thread.
 
-5. **Agent run** — A fresh `RetrievalRegistry` tracks every chunk the agent retrieves via tools (`search_filings`, `read_chunk`, `read_surrounding_chunks`). The agent must return structured `GroundedAnswer` (answer text, citations, optional `insufficient_evidence` flag).
+5. **Agent run** — A fresh `RetrievalRegistry` tracks every chunk the graph retrieves via tools (`search_filings`, `read_chunk`, `read_surrounding_chunks`). The orchestrator consumes native `custom` status events and `values` state updates from `document_agent.astream()`. The model submits a structured answer through `submit_answer`; schema and citation failures return correction feedback to the model within the configured budgets. The OpenAI client and graph stream close on completion or cancellation.
 
 6. **Grounding validation** — `validate_grounded_answer()` enforces the citation contract:
    - Non-empty answer
    - If `insufficient_evidence`: no citations allowed
    - Otherwise: at least one citation, unique indexes, excerpts must appear in retrieved passage text, inline `[1]` markers must match citation indexes exactly
 
-7. **Stream response** — On success, the full answer is emitted as word-by-word SSE `text-delta` events, followed by a `data-citations` part and `finish` / `[DONE]`. The client sees the complete answer at once (no live token streaming from the LLM); streaming simulates typing for UX.
+7. **Stream response** — Progress statuses arrive while the graph runs. After validation succeeds, the answer is emitted as word-by-word SSE `text-delta` events, followed by a `data-citations` part and `finish` / `[DONE]`.
 
 8. **Persist assistant turn** — Assistant message (text + citation parts), normalized citation rows, and thread `updated_at` / auto-title are written after streaming completes.
 
@@ -105,8 +105,8 @@ Failed turns **do not** persist an assistant message. The client receives an SSE
 | Exception | User-facing message |
 |-----------|---------------------|
 | `GroundingError` | Citation validation failed — retry |
-| `UsageLimitExceeded` | Tool/request limit hit — narrow the question |
-| `ModelHTTPError` | LLM service unavailable |
+| `AgentLimitError` / `GraphRecursionError` | Tool/request limit hit — narrow the question |
+| `APIError` | LLM service unavailable |
 
 ## Streaming format
 

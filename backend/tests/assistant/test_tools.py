@@ -5,10 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
+from openai import AsyncOpenAI
+
 from app.assistant.deps import DocumentAgentDeps, RetrievalRegistry
 from app.assistant.tools import read_chunk, read_surrounding_chunks, search_filings
 from app.retrieval.types import SearchFilters, SourcePassage
-from pydantic_ai import RunContext
 
 CHUNK_A = UUID("00000000-0000-0000-0000-000000000001")
 CHUNK_B = UUID("00000000-0000-0000-0000-000000000002")
@@ -30,16 +31,11 @@ def _passage(chunk_id: UUID, chunk_index: int, text: str) -> SourcePassage:
     )
 
 
-def _ctx(
-    retriever: AsyncMock, registry: RetrievalRegistry
-) -> RunContext[DocumentAgentDeps]:
-    deps = DocumentAgentDeps(retriever=retriever, registry=registry)
-    return RunContext(
-        deps=deps,
-        model=MagicMock(),
-        usage=MagicMock(),
-        prompt="test",
-        run_id="run-test",
+def _deps(retriever: AsyncMock, registry: RetrievalRegistry) -> DocumentAgentDeps:
+    return DocumentAgentDeps(
+        retriever=retriever,
+        registry=registry,
+        client=MagicMock(spec=AsyncOpenAI),
     )
 
 
@@ -49,9 +45,9 @@ async def test_search_filings_registers_passages():
     retriever = AsyncMock()
     retriever.search = AsyncMock(return_value=passages)
     registry = RetrievalRegistry()
-    ctx = _ctx(retriever, registry)
+    deps = _deps(retriever, registry)
 
-    results = await search_filings(ctx, "Data Center demand", ticker="NVDA")
+    results = await search_filings(deps, "Data Center demand", ticker="NVDA")
 
     retriever.search.assert_awaited_once_with(
         "Data Center demand",
@@ -68,9 +64,9 @@ async def test_search_filings_reports_zero_result_count():
     retriever = AsyncMock()
     retriever.search = AsyncMock(return_value=[])
     registry = RetrievalRegistry()
-    ctx = _ctx(retriever, registry)
+    deps = _deps(retriever, registry)
 
-    results = await search_filings(ctx, "best stock to buy")
+    results = await search_filings(deps, "best stock to buy")
 
     assert results["result_count"] == 0
     assert results["results"] == []
@@ -83,9 +79,9 @@ async def test_read_chunk_registers_single_passage():
     retriever = AsyncMock()
     retriever.get_chunk = AsyncMock(return_value=passage)
     registry = RetrievalRegistry()
-    ctx = _ctx(retriever, registry)
+    deps = _deps(retriever, registry)
 
-    result = await read_chunk(ctx, CHUNK_B)
+    result = await read_chunk(deps, CHUNK_B)
 
     assert result is not None
     assert result["chunk_id"] == str(CHUNK_B)
@@ -99,9 +95,9 @@ async def test_read_surrounding_chunks_registers_neighbors():
     retriever = AsyncMock()
     retriever.get_surrounding_chunks = AsyncMock(return_value=[neighbor, center])
     registry = RetrievalRegistry()
-    ctx = _ctx(retriever, registry)
+    deps = _deps(retriever, registry)
 
-    results = await read_surrounding_chunks(ctx, CHUNK_B, radius=1)
+    results = await read_surrounding_chunks(deps, CHUNK_B, radius=1)
 
     retriever.get_surrounding_chunks.assert_awaited_once_with(CHUNK_B, radius=1)
     assert len(results) == 2

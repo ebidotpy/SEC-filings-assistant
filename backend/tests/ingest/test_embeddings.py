@@ -4,9 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from openai import RateLimitError
+
 from app import embeddings as app_embeddings
 from ingest import embeddings
-from openai import RateLimitError
 
 
 def _rate_limit_error(retry_after: str | None = None) -> RateLimitError:

@@ -38,7 +38,7 @@ backend/
 │   ├── api/             # FastAPI routers (chat, ingest, auth)
 │   ├── auth/            # Native JWT issuance/verification + current user dependency
 │   ├── chat/            # turn orchestration, AI SDK message conversion, streaming
-│   ├── assistant/       # PydanticAI agent, deps, outputs, instructions
+│   ├── assistant/       # LangGraph agent, deps, outputs, instructions
 │   ├── retrieval/       # pgvector/full-text queries, RRF fusion, source passage lookup
 │   ├── grounding/       # citation validation and answer grounding checks
 │   ├── database/        # SQLAlchemy models, session factory, typed query helpers

@@ -3,14 +3,8 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, ConfigDict, Field
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    UserPromptPart,
-)
 
 from app.assistant.outputs import Citation, GroundedAnswer
 from app.database.chats import CitationInsert, CitationRow, MessageRow
@@ -58,16 +52,16 @@ def prior_messages(
     return [message for message in messages if message.id != current_user_message.id]
 
 
-def to_model_history(messages: list[UIMessage]) -> list[ModelMessage]:
-    history: list[ModelMessage] = []
+def to_model_history(messages: list[UIMessage]) -> list[ChatCompletionMessageParam]:
+    history: list[ChatCompletionMessageParam] = []
     for message in messages:
         text = extract_text(message).strip()
         if not text:
             continue
         if message.role == "user":
-            history.append(ModelRequest(parts=[UserPromptPart(text)]))
+            history.append({"role": "user", "content": text})
         elif message.role == "assistant":
-            history.append(ModelResponse(parts=[TextPart(text)]))
+            history.append({"role": "assistant", "content": text})
     return history
 
 

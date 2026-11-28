@@ -13,6 +13,7 @@ Full brief: [docs/client-brief.md](docs/client-brief.md)
 | Layer              | Choice                                               |
 | ------------------ | ---------------------------------------------------- |
 | Backend            | Python + FastAPI                                     |
+| Agent orchestration | LangGraph with typed state and citation validation |
 | Frontend           | Vite + React SPA + TypeScript                        |
 | Database           | Supabase Postgres (users, chats, documents, chunks)  |
 | Migrations         | SQLAlchemy models + Alembic                          |
@@ -62,6 +63,8 @@ uv run uvicorn app.main:app --reload
 ```
 
 Health check: `http://localhost:8000/health` returns `{"status": "ok"}`. See [docs/guides/backend-setup.md](docs/guides/backend-setup.md) for details.
+
+The document agent runs a compiled LangGraph workflow for model calls, retrieval tools, and citation validation. See [the agent guide](backend/app/assistant/README.md) for its state, limits, and invocation API.
 
 ### Frontend (Vite + React)
 
